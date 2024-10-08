@@ -10,6 +10,8 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 OS_CLOUD = os.getenv('OS_CLOUD')
+TELEGRAM_ALLOWED_CHAT_IDS = os.getenv('TELEGRAM_ALLOWED_CHAT_IDS').split(',')
+
 
 # Check for necessary environment variables
 if not all([TELEGRAM_TOKEN, OS_CLOUD]):
@@ -39,6 +41,11 @@ async def start(update: Update, context) -> None:
 async def button(update: Update, context) -> None:
     query = update.callback_query
     await query.answer()
+
+    chat_id = query.message.chat.id
+    if str(chat_id) not in TELEGRAM_ALLOWED_CHAT_IDS:
+        await query.edit_message_text(text="Access Denied.")
+        return
 
     conn = connect_to_openstack()
 
