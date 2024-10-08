@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -9,15 +10,15 @@ from openstack.connection import Connection
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-OS_CLOUD = os.getenv('OS_CLOUD')
 TELEGRAM_ALLOWED_CHAT_IDS = os.getenv('TELEGRAM_ALLOWED_CHAT_IDS').split(',')
 
+OS_CLOUD = os.getenv('OS_CLOUD')
+OS_ALLOWED_PROJECTS = os.getenv('OS_ALLOWED_PROJECTS').split(',')
 
 # Check for necessary environment variables
 if not all([TELEGRAM_TOKEN, OS_CLOUD]):
     logging.error("Missing required environment variables.")
     raise EnvironmentError("Please set TELEGRAM_BOT_TOKEN, OS_CLOUD, OS_USERNAME, and OS_PASSWORD.")
-
 
 # Function to connect to OpenStack
 def connect_to_openstack() -> Connection:
@@ -66,25 +67,38 @@ async def button(update: Update, context) -> None:
             await handle_reboot(query, conn)
     
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
-        query.edit_message_text(text="An error occurred while processing your request.")
+        match = re.search(r"'([^']+)'.*vm_state\s(\w+)", str(e))
+        error_text = f"Cannot '{match.group(1)}' while the VM state is {match.group(2)}" if match else "Unable to process the error message"
+        await query.edit_message_text(text=f"An error occurred: {error_text}")
 
 # Helper functions
 async def handle_start_all(query, conn) -> None:
     machines = conn.compute.servers()
     for machine in machines:
-        conn.compute.start_server(machine.id)
+        if machine.name in OS_ALLOWED_PROJECTS:
+            conn.compute.start_server(machine.id)
     await query.edit_message_text(text="All machines started.")
 
 async def handle_stop_all(query, conn) -> None:
     machines = conn.compute.servers()
     for machine in machines:
-        conn.compute.stop_server(machine.id)
+        if machine.name in OS_ALLOWED_PROJECTS:
+            conn.compute.stop_server(machine.id)
     await query.edit_message_text(text="All machines stopped.")
 
 async def handle_view_machines(query, conn) -> None:
     machines = conn.compute.servers()
-    keyboard = [[InlineKeyboardButton(f"{machine.name}", callback_data=f"details_{machine.id}")] for machine in machines]
+    # Filter machines to include only those allowed in the OS_ALLOWED_PROJECTS
+    allowed_machines = [
+        machine for machine in machines
+        if machine.name in OS_ALLOWED_PROJECTS
+    ]
+    
+    if not allowed_machines:
+        await query.edit_message_text(text="No machines available.")
+        return
+    
+    keyboard = [[InlineKeyboardButton(f"{machine.name} : {machine.status}", callback_data=f"details_{machine.id}")] for machine in allowed_machines]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text="Select a machine:", reply_markup=reply_markup)
 
@@ -101,16 +115,28 @@ async def handle_details(query, conn) -> None:
 
 async def handle_start(query, conn) -> None:
     machine_id = query.data.split("_")[1]
+    machine = conn.compute.get_server(machine_id)
+    if machine.name not in OS_ALLOWED_PROJECTS:
+        await query.edit_message_text(text="Access Denied: This machine is not in your allowed projects.")
+        return
     conn.compute.start_server(machine_id)
     await query.edit_message_text(text="Machine started.")
 
 async def handle_stop(query, conn) -> None:
     machine_id = query.data.split("_")[1]
+    machine = conn.compute.get_server(machine_id)
+    if machine.name not in OS_ALLOWED_PROJECTS:
+        await query.edit_message_text(text="Access Denied: This machine is not in your allowed projects.")
+        return
     conn.compute.stop_server(machine_id)
     await query.edit_message_text(text="Machine stopped.")
 
 async def handle_reboot(query, conn) -> None:
     machine_id = query.data.split("_")[1]
+    machine = conn.compute.get_server(machine_id)
+    if machine.name not in OS_ALLOWED_PROJECTS:
+        await query.edit_message_text(text="Access Denied: This machine is not in your allowed projects.")
+        return
     conn.compute.reboot_server(machine_id, reboot_type='SOFT')
     await query.edit_message_text(text="Machine rebooted.")
 
@@ -123,6 +149,6 @@ def main() -> None:
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.WARNING)
     
     main()
