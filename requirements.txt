@@ -1,2 +1,3 @@
 python-telegram-bot==21.6
-openstacksdk==4.0.0  
+openstacksdk==4.0.0 
+python-dotenv==1.0.1
