@@ -27,7 +27,7 @@ def connect_to_openstack() -> Connection:
     except Exception as e:
         logging.error(f"Failed to connect to OpenStack: {e}")
         raise
-
+    
 # Command handler for the /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await show_main_menu(update, context)
@@ -91,19 +91,22 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         if query.data == 'start_all':
+            logging.info(f"[{chat_id}] Starting all machines.")
             await handle_start_all(query, conn)
         elif query.data == 'stop_all':
+            logging.info(f"[{chat_id}] Stopping all machines.")
             await handle_stop_all(query, conn)
         elif query.data == 'view_machines':
+            logging.info(f"[{chat_id}] Viewing machines.")
             await handle_view_machines(query, conn)
         elif query.data.startswith("details_"):
-            await handle_details(query, conn)
+            await handle_details(query, conn, chat_id)
         elif query.data.startswith("start_"):
-            await handle_start(query, conn)
+            await handle_start(query, conn, chat_id)
         elif query.data.startswith("stop_"):
-            await handle_stop(query, conn)
+            await handle_stop(query, conn, chat_id)
         elif query.data.startswith("reboot_"):
-            await handle_reboot(query, conn)
+            await handle_reboot(query, conn, chat_id)
         elif query.data == 'system_status':
             await handle_system_status(query, conn)
         elif query.data == 'back_to_main':
@@ -152,10 +155,11 @@ async def handle_view_machines(query: Update.callback_query, conn: Connection) -
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text="Select a machine:", reply_markup=reply_markup)
 
-async def handle_details(query: Update.callback_query, conn: Connection) -> None:
+async def handle_details(query: Update.callback_query, conn: Connection, chat_id) -> None:
     machine_id = query.data.split("_")[1]
     machine = conn.compute.get_server(machine_id)
     flavor = conn.compute.find_flavor(machine.flavor.id)
+    logging.info(f"[{chat_id}] Viewing {machine.name} details.")
     
     details = (f"🖥️ Machine: {machine.name}\n"
                f"Status: {get_status_emoji(machine.status)} {machine.status}\n"
@@ -173,27 +177,30 @@ async def handle_details(query: Update.callback_query, conn: Connection) -> None
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text=details, reply_markup=reply_markup)
 
-async def handle_start(query: Update.callback_query, conn: Connection) -> None:
+async def handle_start(query: Update.callback_query, conn: Connection, chat_id) -> None:
     machine_id = query.data.split("_")[1]
     machine = conn.compute.get_server(machine_id)
+    logging.info(f"[{chat_id}] Starting {machine.name}.")
     if machine.name not in OS_ALLOWED_PROJECTS:
         await query.edit_message_text(text="⛔ Access Denied: This machine is not in your allowed projects.", reply_markup=get_back_to_main_keyboard())
         return
     conn.compute.start_server(machine_id)
     await query.edit_message_text(text=f"▶️ Starting machine: {machine.name}", reply_markup=get_back_to_main_keyboard())
 
-async def handle_stop(query: Update.callback_query, conn: Connection) -> None:
+async def handle_stop(query: Update.callback_query, conn: Connection, chat_id) -> None:
     machine_id = query.data.split("_")[1]
     machine = conn.compute.get_server(machine_id)
+    logging.info(f"[{chat_id}] Stopping {machine.name}.")
     if machine.name not in OS_ALLOWED_PROJECTS:
         await query.edit_message_text(text="⛔ Access Denied: This machine is not in your allowed projects.", reply_markup=get_back_to_main_keyboard())
         return
     conn.compute.stop_server(machine_id)
     await query.edit_message_text(text=f"⏹️ Stopping machine: {machine.name}", reply_markup=get_back_to_main_keyboard())
 
-async def handle_reboot(query: Update.callback_query, conn: Connection) -> None:
+async def handle_reboot(query: Update.callback_query, conn: Connection, chat_id) -> None:
     machine_id = query.data.split("_")[1]
     machine = conn.compute.get_server(machine_id)
+    logging.info(f"[{chat_id}] Rebooting {machine.name}.")
     if machine.name not in OS_ALLOWED_PROJECTS:
         await query.edit_message_text(text="⛔ Access Denied: This machine is not in your allowed projects.", reply_markup=get_back_to_main_keyboard())
         return
